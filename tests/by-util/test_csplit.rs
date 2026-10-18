@@ -1585,21 +1585,22 @@ fn test_line_num_range_with_up_to_match2() {
     assert_eq!(at.read("xx01"), "");
 }
 
-// NOTE: output different than gnu's: the pattern /10/ is matched but should not
+// The line a line number pattern stops at is the current line, so a following
+// regular expression is tested against it.
 #[test]
 fn test_line_num_range_with_up_to_match3() {
     let (at, mut ucmd) = at_and_ucmd!();
     ucmd.args(&["numbers50.txt", "10", "/10/", "-k"])
-        .fails()
-        .stderr_is("csplit: '/10/': match not found\n")
-        .stdout_is("18\n123\n");
+        .succeeds()
+        .stdout_only("18\n0\n123\n");
 
     let count = glob(&at.plus_as_string("xx*"))
         .expect("there should be splits created")
         .count();
-    assert_eq!(count, 2);
+    assert_eq!(count, 3);
     assert_eq!(at.read("xx00"), generate(1, 10));
-    assert_eq!(at.read("xx01"), generate(10, 51));
+    assert_eq!(at.read("xx01"), "");
+    assert_eq!(at.read("xx02"), generate(10, 51));
 
     let (at, mut ucmd) = at_and_ucmd!();
     ucmd.args(&["numbers50.txt", "/10/", "10"])
@@ -1613,6 +1614,62 @@ fn test_line_num_range_with_up_to_match3() {
     assert_eq!(at.read("xx00"), generate(1, 10));
     assert_eq!(at.read("xx01"), "");
     assert_eq!(at.read("xx02"), generate(10, 51));
+}
+
+#[test]
+fn test_regex_tests_line_after_line_number() {
+    let (at, mut ucmd) = at_and_ucmd!();
+    ucmd.args(&["-", "2", "/[0-9]/"])
+        .pipe_in("a\n1\n2\n")
+        .succeeds()
+        .stdout_only("2\n0\n4\n");
+    assert_eq!(at.read("xx00"), "a\n");
+    assert_eq!(at.read("xx01"), "");
+    assert_eq!(at.read("xx02"), "1\n2\n");
+
+    let (at, mut ucmd) = at_and_ucmd!();
+    ucmd.args(&["-", "3", "/3/"])
+        .pipe_in("1\n2\n3\n4\n")
+        .succeeds()
+        .stdout_only("4\n0\n4\n");
+    assert_eq!(at.read("xx00"), "1\n2\n");
+    assert_eq!(at.read("xx01"), "");
+    assert_eq!(at.read("xx02"), "3\n4\n");
+
+    // the line is the first one of the split a positive offset extends
+    let (at, mut ucmd) = at_and_ucmd!();
+    ucmd.args(&["-", "3", "/3/+1"])
+        .pipe_in("1\n2\n3\n4\n")
+        .succeeds()
+        .stdout_only("4\n2\n2\n");
+    assert_eq!(at.read("xx00"), "1\n2\n");
+    assert_eq!(at.read("xx01"), "3\n");
+    assert_eq!(at.read("xx02"), "4\n");
+
+    // a negative offset can't go back past the line number
+    let (_, mut ucmd) = at_and_ucmd!();
+    ucmd.args(&["-", "3", "/3/-1"])
+        .pipe_in("1\n2\n3\n4\n5\n")
+        .fails()
+        .stderr_is("csplit: '/3/-1': line number out of range\n")
+        .stdout_is("4\n0\n");
+
+    // skipping up to the line starts the last split there
+    let (at, mut ucmd) = at_and_ucmd!();
+    ucmd.args(&["-", "3", "%3%"])
+        .pipe_in("1\n2\n3\n4\n")
+        .succeeds()
+        .stdout_only("4\n4\n");
+    assert_eq!(at.read("xx00"), "1\n2\n");
+    assert_eq!(at.read("xx01"), "3\n4\n");
+
+    let (at, mut ucmd) = at_and_ucmd!();
+    ucmd.args(&["-", "3", "/3/", "{*}"])
+        .pipe_in("1\n2\n3\n4\n5\n")
+        .succeeds()
+        .stdout_only("4\n0\n6\n");
+    assert_eq!(at.read("xx01"), "");
+    assert_eq!(at.read("xx02"), "3\n4\n5\n");
 }
 
 #[test]

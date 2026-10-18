@@ -381,6 +381,7 @@ impl SplitWriter<'_> {
     {
         input_iter.rewind_buffer();
         input_iter.set_size_of_buffer(1);
+        input_iter.buffered_line_is_untested = false;
 
         let mut ret = Err(CsplitError::LineOutOfRange(pattern_as_str.to_string()));
         while let Some((ln, line)) = input_iter.next() {
@@ -400,6 +401,7 @@ impl SplitWriter<'_> {
                             || input_iter.add_line_to_buffer(ln, line).is_none(),
                         "the buffer is big enough to contain 1 line"
                     );
+                    input_iter.buffered_line_is_untested = !self.options.suppress_matched;
                     ret = Ok(());
                     break;
                 }
@@ -434,14 +436,17 @@ impl SplitWriter<'_> {
     {
         if offset >= 0 {
             // The offset is zero or positive, no need for a buffer on the lines read.
-            // NOTE: drain the buffer of input_iter, no match should be done within.
+            // The line a line number pattern stopped at is the current line, so it is
+            // tested first. The other buffered lines were already looked at by an earlier
+            // pattern: drain them, no match should be done within.
+            let mut untested = input_iter.take_untested_line();
             for line in input_iter.drain_buffer() {
                 self.writeln(&line)?;
             }
             // retain the matching line
             input_iter.set_size_of_buffer(1);
 
-            while let Some((ln, line)) = input_iter.next() {
+            while let Some((ln, line)) = untested.take().or_else(|| input_iter.next()) {
                 let line = line?;
                 let l = line
                     .strip_suffix(b"\r\n")
@@ -494,10 +499,12 @@ impl SplitWriter<'_> {
             // The consequence is that the buffer may already be full with lines from a previous
             // split, which is taken care of when calling `shrink_buffer_to_size`.
             let offset_usize = offset.unsigned_abs() as usize;
+            // the line a line number pattern stopped at is tested first
+            let mut untested = input_iter.take_untested_line();
             // lines of the current split before the match; a negative offset may not go past them
             let mut lines_in_split = input_iter.buffer_len();
             input_iter.set_size_of_buffer(offset_usize);
-            while let Some((ln, line)) = input_iter.next() {
+            while let Some((ln, line)) = untested.take().or_else(|| input_iter.next()) {
                 let line = line?;
                 let l = line
                     .strip_suffix(b"\r\n")
@@ -556,6 +563,9 @@ where
     /// flag to indicate content off the buffer should be returned instead of off the wrapped
     /// iterator
     rewind: bool,
+    /// whether the buffer holds the line a line number pattern stopped at, which no regular
+    /// expression has been tested against yet
+    buffered_line_is_untested: bool,
 }
 
 impl<I> InputSplitter<I>
@@ -568,6 +578,18 @@ where
             buffer: Vec::new(),
             rewind: false,
             size: 1,
+            buffered_line_is_untested: false,
+        }
+    }
+
+    /// Remove and return the line a line number pattern stopped at, if the buffer holds one.
+    fn take_untested_line(&mut self) -> Option<<I as Iterator>::Item> {
+        // a longer buffer holds lines of an earlier negative offset as well, in front of
+        // the current line, which must be written first
+        if std::mem::take(&mut self.buffered_line_is_untested) && self.buffer.len() == 1 {
+            Some(self.buffer.remove(0))
+        } else {
+            None
         }
     }
 
