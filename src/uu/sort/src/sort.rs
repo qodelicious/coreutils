@@ -2282,12 +2282,15 @@ pub fn uumain(args: impl uucore::Args) -> UResult<()> {
     settings.ignore_non_printing = ignore_non_printing;
     settings.ignore_case = ignore_case;
 
+    let parallel = matches
+        .get_one::<String>(options::PARALLEL)
+        .map(|arg| parse_parallel(arg))
+        .transpose()?;
+
     // WASI doesn't support threads, so we ignore the corresponding option
     #[cfg(not(target_os = "wasi"))]
     {
-        let threads = matches
-            .get_one::<u64>(options::PARALLEL)
-            .copied()
+        let threads = parallel
             .unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |n| n.get() as u64));
         let _ = rayon::ThreadPoolBuilder::new()
             .num_threads(threads as usize)
@@ -2701,7 +2704,6 @@ pub fn uu_app() -> Command {
         Arg::new(options::PARALLEL)
             .long(options::PARALLEL)
             .help(translate!("sort-help-parallel"))
-            .value_parser(clap::value_parser!(u64).range(1..))
             .value_name("NUM_THREADS"),
     )
     .arg(
@@ -3426,6 +3428,36 @@ fn open_with_open_failed_error(path: impl AsRef<OsStr>) -> UResult<Box<dyn Read 
             error,
         }
         .into()),
+    }
+}
+
+/// Parse the value of `--parallel`: a non-zero number, optionally preceded by `+`.
+fn parse_parallel(arg: &str) -> UResult<u64> {
+    let digits = arg.strip_prefix('+').unwrap_or(arg);
+    let n_digits = digits.bytes().take_while(u8::is_ascii_digit).count();
+    let option = options::PARALLEL;
+    if n_digits == 0 {
+        return Err(USimpleError::new(
+            2,
+            translate!("sort-invalid-option-arg", "option" => option, "arg" => arg.quote()),
+        ));
+    }
+    if n_digits < digits.len() {
+        return Err(USimpleError::new(
+            2,
+            translate!("sort-invalid-suffix-in-option-arg", "option" => option, "arg" => arg.quote()),
+        ));
+    }
+    match digits.parse::<u64>() {
+        Ok(0) => Err(USimpleError::new(
+            2,
+            translate!("sort-parallel-must-be-nonzero"),
+        )),
+        Ok(n) => Ok(n),
+        Err(_) => Err(USimpleError::new(
+            2,
+            translate!("sort-option-arg-too-large", "option" => option, "arg" => arg.quote()),
+        )),
     }
 }
 
