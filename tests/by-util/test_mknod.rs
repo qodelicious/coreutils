@@ -27,6 +27,32 @@ fn test_mknod_overflow_major_minor() {
         .stderr_contains("invalid value '4294967296'"); //clap generated message, thats fine.
 }
 
+// Without the privilege to create a device node the command fails later, with
+// its own error, but it has to accept the hexadecimal numbers first.
+#[test]
+fn test_mknod_hex_major_minor() {
+    let result = new_ucmd!()
+        .args(&["-m", "0660", "test_node", "b", "0x100", "0X10"])
+        .run();
+    assert!(
+        !result.stderr_str().contains("invalid value"),
+        "{}",
+        result.stderr_str()
+    );
+}
+
+#[test]
+fn test_mknod_invalid_hex_major_minor() {
+    new_ucmd!()
+        .args(&["test_node", "c", "0x", "1"])
+        .fails()
+        .stderr_contains("invalid value '0x'");
+    new_ucmd!()
+        .args(&["test_node", "c", "1", "0x100000000"])
+        .fails()
+        .stderr_contains("invalid value '0x100000000'");
+}
+
 #[test]
 fn test_mknod_invalid_arg() {
     new_ucmd!()
