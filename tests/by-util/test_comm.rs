@@ -805,6 +805,50 @@ fn test_c_locale_still_orders_by_bytes() {
 }
 
 #[test]
+fn test_line_terminator_not_compared() {
+    let scene = TestScenario::new(util_name!());
+    let at = &scene.fixtures;
+    // "" sorts before "\t" and "a" before "a\tb", with or without the terminator.
+    at.write("empty", "");
+    at.write("sorted", "\n\t\n");
+    at.write("f1", "a\n");
+    at.write("f2", "a\tb\n");
+
+    scene
+        .ucmd()
+        .env("LC_ALL", "C")
+        .args(&["--check-order", "empty", "sorted"])
+        .succeeds()
+        .stdout_only("\t\n\t\t\n");
+
+    scene
+        .ucmd()
+        .env("LC_ALL", "C")
+        .args(&["--check-order", "f1", "f2"])
+        .succeeds()
+        .stdout_only("a\n\ta\tb\n");
+
+    // The last line of a file may lack its terminator.
+    at.write("f3", "a");
+    at.write("f4", "a\tb");
+    scene
+        .ucmd()
+        .env("LC_ALL", "C")
+        .args(&["f3", "f4"])
+        .succeeds()
+        .stdout_only("a\n\ta\tb\n");
+
+    at.write("z1", "a\0");
+    at.write("z2", "a\tb\0");
+    scene
+        .ucmd()
+        .env("LC_ALL", "C")
+        .args(&["-z", "z1", "z2"])
+        .succeeds()
+        .stdout_only("a\0\ta\tb\0");
+}
+
+#[test]
 #[cfg(target_os = "linux")]
 fn test_comm_write_error_dev_full() {
     use std::fs::OpenOptions;
