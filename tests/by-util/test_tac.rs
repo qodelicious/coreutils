@@ -120,6 +120,16 @@ fn test_invalid_input() {
 }
 
 #[test]
+#[cfg(not(windows))]
+fn test_read_error_keeps_numeric_file_name() {
+    let (at, mut ucmd) = at_and_ucmd!();
+    at.mkdir("1e3");
+    ucmd.arg("1e3")
+        .fails()
+        .stderr_is("tac: 1e3: read error: Is a directory\n");
+}
+
+#[test]
 fn test_no_line_separators() {
     new_ucmd!().pipe_in("a").succeeds().stdout_is("a");
 }

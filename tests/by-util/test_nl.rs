@@ -827,6 +827,18 @@ fn test_directory_as_input() {
 }
 
 #[test]
+fn test_directory_with_numeric_name() {
+    let (at, mut ucmd) = at_and_ucmd!();
+    at.mkdir("1e3");
+    at.mkdir("007");
+
+    ucmd.arg("1e3")
+        .arg("007")
+        .fails()
+        .stderr_is("nl: 1e3: Is a directory\nnl: 007: Is a directory\n");
+}
+
+#[test]
 fn test_file_with_non_utf8_content() {
     let (at, mut ucmd) = at_and_ucmd!();
 
