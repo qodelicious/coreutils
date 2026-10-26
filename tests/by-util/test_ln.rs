@@ -1061,6 +1061,51 @@ fn test_relative_recursive() {
 }
 
 #[test]
+fn test_backup_or_force_refuses_to_replace_directory() {
+    for (args, name) in [
+        (vec!["-s", "-b", "-T", "file", "dir"], "dir"),
+        (vec!["-b", "-T", "file", "dir"], "dir"),
+        (vec!["-s", "--backup=numbered", "-T", "file", "dir"], "dir"),
+        (vec!["-s", "-S", ".bak", "-T", "file", "dir"], "dir"),
+        (vec!["-s", "-f", "-T", "file", "dir"], "dir"),
+        (vec!["-f", "-T", "file", "dir"], "dir"),
+        (vec!["-s", "-b", "-t", ".", "src/dir"], "./dir"),
+    ] {
+        let (at, mut ucmd) = at_and_ucmd!();
+        at.touch("file");
+        at.mkdir_all("src/dir");
+        at.mkdir("dir");
+        at.touch("dir/keep");
+
+        ucmd.args(&args)
+            .fails_with_code(1)
+            .stderr_is(format!("ln: {name}: cannot overwrite directory\n"));
+
+        assert!(at.dir_exists("dir"));
+        assert!(at.file_exists("dir/keep"));
+        assert!(!at.file_exists("dir~"));
+        assert!(!at.file_exists("dir.~1~"));
+        assert!(!at.file_exists("dir.bak"));
+    }
+}
+
+#[test]
+fn test_backup_symlink_to_directory() {
+    let (at, mut ucmd) = at_and_ucmd!();
+    at.touch("file");
+    at.mkdir("dir");
+    at.symlink_dir("dir", "link");
+
+    ucmd.args(&["-s", "-b", "-T", "file", "link"])
+        .succeeds()
+        .no_stderr();
+
+    assert_eq!(at.resolve_link("link"), "file");
+    assert_eq!(at.resolve_link("link~"), "dir");
+    assert!(at.dir_exists("dir"));
+}
+
+#[test]
 fn test_backup_same_file() {
     let (at, mut ucmd) = at_and_ucmd!();
     at.touch("file1");

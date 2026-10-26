@@ -71,6 +71,9 @@ pub enum LnError {
 
     #[error("{}", translate!("ln-failed-to-create-hard-link-dir", "source" => _0.to_string_lossy()))]
     FailedToCreateHardLinkDir(PathBuf),
+
+    #[error("{}", translate!("ln-error-cannot-overwrite-directory", "target" => _0.maybe_quote()))]
+    CannotOverwriteDirectory(PathBuf),
 }
 
 impl UError for LnError {
@@ -405,6 +408,12 @@ pub fn link(src: &Path, dst: &Path, settings: &Settings) -> LnResult<()> {
     };
 
     if dst.is_symlink() || dst.exists() {
+        // Like GNU, never back up or replace a real directory, only a symlink to one
+        if (settings.backup != BackupMode::None || settings.overwrite != OverwriteMode::NoClobber)
+            && fs::symlink_metadata(dst).is_ok_and(|m| m.is_dir())
+        {
+            return Err(LnError::CannotOverwriteDirectory(dst.to_owned()));
+        }
         backup_path = backup_control::get_backup_path(settings.backup, dst, &settings.suffix);
         if settings.backup != BackupMode::None && !settings.symbolic {
             // `ln --backup f f`: the backup would move `f` away before the
